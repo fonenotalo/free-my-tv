@@ -1,0 +1,116 @@
+name: Build Free My TV - Custom APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Generate custom configuration
+        env:
+          TMDB_KEY: ${{ secrets.TMDB_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          key = os.environ.get("TMDB_KEY", "").strip()
+
+          if not key:
+              raise SystemExit("TMDB_KEY secret is missing!")
+
+          config = Path("config.example.properties").read_text(
+              encoding="utf-8"
+          )
+
+          settings = {
+              "tmdb_key": key,
+              "tmdb_region": "BR",
+              "language": "pt",
+              "currency": "BRL",
+              "city": city,
+              "latitude": latitude,
+              "longitude": longitude,
+          }
+
+          for name, value in settings.items():
+              pattern = rf"(?m)^{re.escape(name)}=.*$"
+              config, count = re.subn(
+                  pattern,
+                  lambda _: f"{name}={value}",
+                  config
+              )
+
+              if count != 1:
+                  raise SystemExit(
+                      f"Could not configure property: {name}"
+                  )
+
+          Path("config.properties").write_text(
+              config,
+              encoding="utf-8"
+          )
+
+          print("Custom configuration generated successfully.")
+          PY
+
+      - name: Prepare signing keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.FREEMYTV_KEYSTORE_B64 }}
+          KEYSTORE_PASS: ${{ secrets.FREEMYTV_KEYSTORE_PASS }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            if [ -z "$KEYSTORE_PASS" ]; then
+              echo "Missing FREEMYTV_KEYSTORE_PASS"
+              exit 1
+            fi
+
+            printf '%s' "$KEYSTORE_B64" \
+              | base64 --decode > "$RUNNER_TEMP/freemytv.keystore"
+
+            echo "FREEMYTV_KEYSTORE=$RUNNER_TEMP/freemytv.keystore" \
+              >> "$GITHUB_ENV"
+
+            echo "Persistent signing key configured."
+          else
+            echo "::warning::No persistent keystore configured. Updates may require reinstalling the APK."
+          fi
+
+      - name: Build APK
+        env:
+          FREEMYTV_KEYSTORE_PASS: ${{ secrets.FREEMYTV_KEYSTORE_PASS }}
+        run: |
+          chmod +x build.sh
+          ./build.sh
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FreeMyTV-HY300
+          path: FreeMyTV.apk
+          if-no-files-found: error
+          retention-days: 14
