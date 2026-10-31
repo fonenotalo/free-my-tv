@@ -1,3 +1,4 @@
+
 name: Build Free My TV - Custom APK
 
 on:
@@ -10,14 +11,14 @@ jobs:
   build:
     name: Build Android APK
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
 
       - name: Setup Java 17
-        uses: actions/setup-java@v6
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -41,33 +42,39 @@ jobs:
           key = os.environ.get("TMDB_KEY", "").strip()
 
           if not key:
-              raise SystemExit("TMDB_KEY secret is missing!")
+              raise SystemExit("ERROR: TMDB_KEY secret is missing!")
 
-          config = Path("config.example.properties").read_text(
-              encoding="utf-8"
-          )
+          example = Path("config.example.properties")
+
+          if not example.is_file():
+              raise SystemExit(
+                  "ERROR: config.example.properties not found!"
+              )
+
+          config = example.read_text(encoding="utf-8")
 
           settings = {
-    "tmdb_key": key,
-    "tmdb_region": "BR",
-    "language": "pt",
-    "currency": "BRL",
-    "city": "Itaipulândia",
-    "latitude": "-25.14",
-    "longitude": "-54.30",
-}
+              "tmdb_key": key,
+              "tmdb_region": "BR",
+              "language": "pt",
+              "currency": "BRL",
+              "city": "Itaipulândia",
+              "latitude": "-25.14",
+              "longitude": "-54.30",
+          }
 
           for name, value in settings.items():
               pattern = rf"(?m)^{re.escape(name)}=.*$"
+
               config, count = re.subn(
                   pattern,
-                  lambda _: f"{name}={value}",
+                  lambda _, n=name, v=value: f"{n}={v}",
                   config
               )
 
               if count != 1:
                   raise SystemExit(
-                      f"Could not configure property: {name}"
+                      f"ERROR: Invalid configuration property: {name}"
                   )
 
           Path("config.properties").write_text(
@@ -75,7 +82,7 @@ jobs:
               encoding="utf-8"
           )
 
-          print("Custom configuration generated successfully.")
+          print("Custom configuration generated successfully!")
           PY
 
       - name: Prepare signing keystore
@@ -85,19 +92,24 @@ jobs:
         run: |
           if [ -n "$KEYSTORE_B64" ]; then
             if [ -z "$KEYSTORE_PASS" ]; then
-              echo "Missing FREEMYTV_KEYSTORE_PASS"
+              echo "ERROR: Missing FREEMYTV_KEYSTORE_PASS"
               exit 1
             fi
 
             printf '%s' "$KEYSTORE_B64" \
               | base64 --decode > "$RUNNER_TEMP/freemytv.keystore"
 
+            if [ ! -s "$RUNNER_TEMP/freemytv.keystore" ]; then
+              echo "ERROR: Keystore is empty or invalid"
+              exit 1
+            fi
+
             echo "FREEMYTV_KEYSTORE=$RUNNER_TEMP/freemytv.keystore" \
               >> "$GITHUB_ENV"
 
-            echo "Persistent signing key configured."
+            echo "Persistent signing keystore configured."
           else
-            echo "::warning::No persistent keystore configured. Updates may require reinstalling the APK."
+            echo "::warning::No persistent keystore configured. APK updates may require uninstalling the previous version."
           fi
 
       - name: Build APK
@@ -106,6 +118,21 @@ jobs:
         run: |
           chmod +x build.sh
           ./build.sh
+
+      - name: Verify APK
+        run: |
+          if [ ! -f FreeMyTV.apk ]; then
+            echo "ERROR: FreeMyTV.apk was not generated!"
+            exit 1
+          fi
+
+          if [ ! -s FreeMyTV.apk ]; then
+            echo "ERROR: APK is empty!"
+            exit 1
+          fi
+
+          echo "APK generated successfully."
+          ls -lh FreeMyTV.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
