@@ -48,14 +48,14 @@ jobs:
           )
 
           settings = {
-              "tmdb_key": key,
-              "tmdb_region": "BR",
-              "language": "pt",
-              "currency": "BRL",
-              "city": city,
-              "latitude": latitude,
-              "longitude": longitude,
-          }
+    "tmdb_key": key,
+    "tmdb_region": "BR",
+    "language": "pt",
+    "currency": "BRL",
+    "city": "Itaipulândia",
+    "latitude": "-25.14",
+    "longitude": "-54.30",
+}
 
           for name, value in settings.items():
               pattern = rf"(?m)^{re.escape(name)}=.*$"
